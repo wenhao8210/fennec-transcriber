@@ -1,0 +1,14 @@
+# Fennec 本地转写 · Python 依赖
+# 安装：pip install -r requirements.txt
+# 另需系统级 ffmpeg（pip 装不了）：brew install ffmpeg
+#
+# 版本取自本机 venv 实测（pip freeze），2026-10-20
+fastapi==0.141.1
+uvicorn==0.52.1
+faster-whisper==1.2.1
+sherpa-onnx==1.13.4
+numpy==2.5.2
+pydantic==2.13.4
+requests==2.34.2
+dashscope==1.26.7
+python-multipart==0.0.32

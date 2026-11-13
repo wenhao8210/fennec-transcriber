@@ -1,0 +1,41 @@
+# Private runtime data and credentials
+data/
+models/
+venv/
+.venv/
+90_过程产物/
+.env
+.env.*
+!.env.example
+settings.json
+**/settings.json
+*credentials*
+*.key
+*.pem
+*.p12
+*.pfx
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.log
+*.bak*
+# Recordings, voice references and exports
+*.wav
+*.m4a
+*.mp3
+*.aac
+*.ogg
+*.flac
+exports/
+fennec-export/
+# Build products and local editor/OS state
+*.app/
+app/.build/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+.idea/
+.vscode/
