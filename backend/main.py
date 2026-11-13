@@ -35,7 +35,7 @@ from aliyun_asr import get_api_key, set_api_key, transcribe_cloud
 from audio_quality import analyze_energy, analyze_speech_ratio, is_low_content, speech_score
 import hotwords
 
-app = FastAPI(title="Fennec Local Transcriber")
+app = FastAPI(title="Wennec Local Transcriber")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:8778", "http://localhost:8778"],
@@ -673,7 +673,7 @@ async def marker_nearby(mid: str, window: int = 600):
 
 @app.post("/api/import")
 async def import_file(req: Request):
-    """把尚未入库的音频文件登记进 Fennec 并拿到 session id。"""
+    """把尚未入库的音频文件登记进 Wennec 并拿到 session id。"""
     try:
         body = await req.json()
     except Exception:

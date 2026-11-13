@@ -1,8 +1,10 @@
-# Fennec 转写助手
+# Wennec 转写助手
 
 面向 macOS 的个人录音整理工具：读取 Fennec 的本地录音，完成转写、检索、回听和说话人标注。使用 Python / FastAPI 后端、无需打包的单页界面，以及可选的 Swift 原生窗口。
 
-这是独立的个人项目，不是 Fennec 或阿里云的官方产品。
+Wennec 是独立的个人项目，不是 Fennec 或阿里云的官方产品。这里的 Fennec 指作为录音来源的应用。
+
+产品原名为 Fennec 转写助手。为兼容现有链接和配置，仓库地址、FENNEC_* 环境变量、数据目录及旧 fennec:// 链接暂时保留；界面与新构建的 App 使用 Wennec 名称，并支持 wennec:// 链接。
 
 ## 功能
 
@@ -115,7 +117,7 @@ bash app/build.sh
 ./run.sh app
 ```
 
-构建出的 Fennec.app 应保留在项目根目录，紧邻 backend/ 和 venv/。它不是独立安装包，也未做 Apple 公证，不要直接拷贝到 Applications 后期待它独立运行。需要时可通过环境变量 FENNEC_HOME 指定项目根目录。
+构建出的 Wennec.app 应保留在项目根目录，紧邻 backend/ 和 venv/。它不是独立安装包，也未做 Apple 公证，不要直接拷贝到 Applications 后期待它独立运行。需要时可通过环境变量 FENNEC_HOME 指定项目根目录。
 
 ### 当天录音批处理
 

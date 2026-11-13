@@ -33,7 +33,7 @@ class ReleaseSafetyTests(unittest.TestCase):
     def test_page_loads(self):
         response = CLIENT.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Fennec", response.text)
+        self.assertIn("Wennec 本地转写", response.text)
 
     def test_settings_do_not_return_api_key(self):
         with patch.dict(os.environ, {"DASHSCOPE_API_KEY": "test-only-not-a-real-credential"}):

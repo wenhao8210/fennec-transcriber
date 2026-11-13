@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Fennec 转写：转写当天所有未转写的语音，默认本地模式。
+Wennec 转写：转写当天所有未转写的语音，默认本地模式。
 用法：python3 backend/fennec_transcribe_today.py
 依赖：应用已运行在 http://127.0.0.1:8778
 """
@@ -39,7 +39,7 @@ def main():
     try:
         sessions = http_get("/api/sessions")
     except Exception as e:
-        print(f"[错误] 无法连接应用：{e}，请先启动 fennec-transcriber")
+        print(f"[错误] 无法连接应用：{e}，请先启动 Wennec")
         return 1
 
     # 筛选当天 + 未转写（status != done）

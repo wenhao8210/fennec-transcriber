@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>Fennec</string>
+	<string>Wennec</string>
 	<key>CFBundleDisplayName</key>
-	<string>Fennec 转写</string>
+	<string>Wennec 转写</string>
 	<key>CFBundleIdentifier</key>
 	<string>local.fennec-transcriber</string>
 	<key>CFBundleExecutable</key>
-	<string>Fennec</string>
+	<string>Wennec</string>
 	<key>CFBundleIconFile</key>
 	<string>Fennec</string>
 	<key>CFBundlePackageType</key>
@@ -29,6 +29,7 @@
 			<string>local.fennec-transcriber.url</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
+				<string>wennec</string>
 				<string>fennec</string>
 			</array>
 		</dict>

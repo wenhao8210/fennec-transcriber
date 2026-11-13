@@ -2,7 +2,7 @@ import AppKit
 import Darwin
 import WebKit
 
-// Fennec 转写 —— macOS 原生外壳
+// Wennec 转写 —— macOS 原生外壳
 // 职责：托管 uvicorn 后端进程（随 App 启动/退出）、提供原生窗口与菜单栏常驻入口。
 
 let PORT = 8778
@@ -116,7 +116,7 @@ final class ServerManager {
             try p.run()
             process = p
         } catch {
-            NSLog("[Fennec] 启动后端失败: \(error)")
+            NSLog("[Wennec] 启动后端失败: \(error)")
         }
     }
 
@@ -318,7 +318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     private func setStatus(_ text: String) {
         statusMenuItem.title = "状态：" + text
-        statusItem.button?.toolTip = "Fennec 转写 · " + text
+        statusItem.button?.toolTip = "Wennec 转写 · " + text
     }
 
     // MARK: 窗口
@@ -327,7 +327,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let frame = NSRect(x: 0, y: 0, width: 1280, height: 880)
         let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
         let win = NSWindow(contentRect: frame, styleMask: style, backing: .buffered, defer: false)
-        win.title = "Fennec 转写"
+        win.title = "Wennec 转写"
         win.minSize = NSSize(width: 900, height: 600)
         win.center()
         win.delegate = self
@@ -407,11 +407,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let main = NSMenu()
 
         let appMenu = NSMenu()
-        appMenu.addItem(menuItem("关于 Fennec", action: #selector(showAbout)))
+        appMenu.addItem(menuItem("关于 Wennec", action: #selector(showAbout)))
         appMenu.addItem(.separator())
         appMenuItems().forEach { appMenu.addItem($0) }
         appMenu.addItem(.separator())
-        let hide = menuItem("隐藏 Fennec", action: #selector(NSApplication.hide(_:)), key: "h", target: NSApp)
+        let hide = menuItem("隐藏 Wennec", action: #selector(NSApplication.hide(_:)), key: "h", target: NSApp)
         let hideOthers = menuItem("隐藏其他", action: #selector(NSApplication.hideOtherApplications(_:)), key: "h", target: NSApp)
         hideOthers.keyEquivalentModifierMask = [.command, .option]
         let showAll = menuItem("显示全部", action: #selector(NSApplication.unhideAllApplications(_:)), target: NSApp)
@@ -419,7 +419,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         appMenu.addItem(hideOthers)
         appMenu.addItem(showAll)
         appMenu.addItem(.separator())
-        appMenu.addItem(menuItem("退出 Fennec", action: #selector(NSApplication.terminate(_:)), key: "q", target: NSApp))
+        appMenu.addItem(menuItem("退出 Wennec", action: #selector(NSApplication.terminate(_:)), key: "q", target: NSApp))
         let appMenuItem = NSMenuItem()
         appMenuItem.submenu = appMenu
         main.addItem(appMenuItem)
@@ -458,8 +458,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private func buildStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Fennec")
-            button.toolTip = "Fennec 转写"
+            button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Wennec")
+            button.toolTip = "Wennec 转写"
         }
         let menu = NSMenu()
         menu.addItem(menuItem("打开主界面", action: #selector(showMainWindow)))
@@ -469,8 +469,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         menu.addItem(.separator())
         appMenuItems().forEach { menu.addItem($0) }
         menu.addItem(.separator())
-        menu.addItem(menuItem("关于 Fennec", action: #selector(showAbout)))
-        menu.addItem(menuItem("退出 Fennec", action: #selector(NSApplication.terminate(_:)), key: "q", target: NSApp))
+        menu.addItem(menuItem("关于 Wennec", action: #selector(showAbout)))
+        menu.addItem(menuItem("退出 Wennec", action: #selector(NSApplication.terminate(_:)), key: "q", target: NSApp))
         statusItem.menu = menu
     }
 
@@ -517,9 +517,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     @objc private func showAbout() {
         NSApp.activate(ignoringOtherApps: true)
-        let credits = NSMutableAttributedString(string: "Fennec 录音本地转写\n本地 Whisper + 阿里云云端转写\n数据目录：\(rootPath)/data")
+        let credits = NSMutableAttributedString(string: "Wennec 录音本地转写\n本地 Whisper + 阿里云云端转写\n数据目录：\(rootPath)/data")
         NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: "Fennec 转写",
+            .applicationName: "Wennec 转写",
             .applicationVersion: "1.0.0",
             .credits: credits,
         ])
@@ -529,7 +529,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        if navigationAction.request.url?.scheme == "fennec" {
+        if ["wennec", "fennec"].contains(navigationAction.request.url?.scheme?.lowercased() ?? "") {
             decisionHandler(.cancel)
             boot(retry: 0)
             return
@@ -556,7 +556,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private var pendingJump: (sid: String, t: String)?
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls where url.scheme?.lowercased() == "fennec" {
+        for url in urls where ["wennec", "fennec"].contains(url.scheme?.lowercased() ?? "") {
             let sid = (url.host ?? "").filter { $0.isHexDigit }
             let t = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "t" })?.value ?? "0"
@@ -655,7 +655,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         <html><body style="font:14px -apple-system;margin:0;background:#1c1c1e;color:#e5e5ea;padding:40px">
         <div style="max-width:760px;margin:0 auto">
         <div style="font-size:17px;margin-bottom:12px">服务启动失败</div>
-        <p><a href="fennec://retry" style="color:#0a84ff">点击重试</a></p>
+        <p><a href="wennec://retry" style="color:#0a84ff">点击重试</a></p>
         <p style="color:#8e8e93">项目目录：\(htmlEscape(rootPath))</p>
         <p style="color:#8e8e93">日志：\(htmlEscape(LOG_PATH))</p>
         \(extra)

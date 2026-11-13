@@ -1,5 +1,5 @@
 #!/bin/bash
-# Fennec 转写服务控制脚本
+# Wennec 转写服务控制脚本
 #
 #   ./run.sh         后台启动本地服务，浏览器访问 http://127.0.0.1:8778
 #   ./run.sh start   仅后台启动服务，不打开界面
@@ -13,7 +13,7 @@ if [ -f .env ]; then
   set +a
 fi
 
-APP="$(cd "$(dirname "$0")" && pwd)/Fennec.app"
+APP="$(cd "$(dirname "$0")" && pwd)/Wennec.app"
 PORT=8778
 
 alive() { curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$PORT/api/sessions"; }
@@ -34,7 +34,7 @@ start_server() {
 
 stop_server() {
   pkill -f "uvicorn main:app" 2>/dev/null
-  pkill -f "Contents/MacOS/Fennec" 2>/dev/null
+  pkill -f "Contents/MacOS/Wennec" 2>/dev/null
   echo "已停止服务"
 }
 
@@ -48,7 +48,7 @@ case "${1:-start}" in
   status)
     if alive; then
       echo "运行中 http://127.0.0.1:$PORT"
-      pgrep -f "Contents/MacOS/Fennec" >/dev/null && echo "Fennec.app 已打开" || echo "Fennec.app 未打开"
+      pgrep -f "Contents/MacOS/Wennec" >/dev/null && echo "Wennec.app 已打开" || echo "Wennec.app 未打开"
     else
       echo "未运行"
     fi
@@ -59,7 +59,7 @@ case "${1:-start}" in
   *)  # 默认：打开 App，由 App 自己托管服务
     if [ -d "$APP" ]; then
       open -a "$APP"
-      echo "已打开 Fennec.app（服务由 App 托管，退出 App 即停止服务）"
+      echo "已打开 Wennec.app（服务由 App 托管，退出 App 即停止服务）"
     else
       echo "未找到 $APP，回退为后台启动服务"
       start_server && open "http://127.0.0.1:$PORT"
