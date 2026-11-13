@@ -48,6 +48,8 @@ python3.13 -m venv venv
 
 依赖版本来自可运行环境，其他 Python 版本和芯片架构需要自行确认兼容性。
 
+PyAV 显式固定为 `av==16.1.0`。当前 `faster-whisper==1.2.1` 会传入 PyAV 19 已移除的 `metadata_errors` 参数；不要单独升级 `av` 到 19。若旧环境转写时报 `open() got an unexpected keyword argument 'metadata_errors'`，重新运行 `./venv/bin/python -m pip install -r requirements.txt`，然后重启服务。
+
 ### 下载本地识别模型
 
 需要 faster-whisper 对应的 CTranslate2 模型，不是原版 Whisper 的 .pt 文件：
@@ -155,10 +157,11 @@ data/、models/、venv/、.env 与编译产物已加入 .gitignore。复制或�
 ```bash
 ./venv/bin/python -m pip install -r requirements-dev.txt
 ./venv/bin/python -m unittest discover -s tests -v
+./venv/bin/python -m pip check
 bash -n run.sh app/build.sh
 ```
 
-测试使用临时目录和虚构数据，不读取真实录音，不调用云端 API，不产生转写费用。覆盖本地页面、Origin/Host 校验、导入路径约束、密钥不回显等发布安全行为。
+测试使用临时目录和虚构数据，不读取真实录音，不调用云端 API，不产生转写费用。覆盖本地页面、Origin/Host 校验、导入路径约束、密钥不回显等发布安全行为；还会生成有效的单声道 / 双声道 WAV，经 faster-whisper 和 PyAV 实际解码、重采样，防止依赖兼容性回归。这些解码测试不需要下载识别模型，也不替代准备模型后的完整转写验收。
 
 - 识别速度、准确率和声纹效果取决于模型、音质和设备。
 - 本地声纹二分类不是完整多说话人分离；云端也可能把同一人拆成多个说话人。
