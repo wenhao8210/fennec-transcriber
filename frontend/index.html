@@ -127,6 +127,7 @@ button.primary.danger{background:var(--danger);border-color:var(--danger);color:
 #toolbar .title{flex:1;min-width:0;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .toolbar-search > button,#recordingActions > button,#transcribeControl > button,.batch-dropdown > button{height:32px;white-space:nowrap;flex-shrink:0;font-size:12px}
 .toolbar-search > button,#recordingActions > button,.batch-dropdown > button{padding-inline:10px}
+#searchScope{height:32px;flex-shrink:0;font-size:12px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding-inline:8px}
 #toolbarStatus{max-width:55%;justify-content:flex-end}
 #status,#batchProgress{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--muted)}
 #status:empty{display:none}
@@ -353,7 +354,6 @@ body.native-shell #browserActions,body.native-shell #btnSettings,body.native-she
     <summary aria-label="更多操作">更多</summary>
     <div class="browser-actions-menu">
       <button id="browserRecordingOptions">监听选项</button>
-      <button id="browserSearch">搜索全部录音</button>
       <button id="browserSettings">转写设置</button>
     </div>
   </details>
@@ -363,9 +363,6 @@ body.native-shell #browserActions,body.native-shell #btnSettings,body.native-she
   <h1><span>Wennec 本地转写</span><button id="btnMark" title="点击：标记当前时间；长按：标记管理"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-6.4 7-11a7 7 0 1 0-14 0c0 4.6 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></button></h1>
   <div class="sub">faster-whisper · 本地声纹</div>
   <div id="dimensionPanel">
-    <div id="dimensionTabs">
-      <button id="tabDaily" class="active">每日录音</button>
-    </div>
     <section id="activity">
       <div class="activity-head">
         <span class="activity-title">每日录音</span>
@@ -393,7 +390,7 @@ body.native-shell #browserActions,body.native-shell #btnSettings,body.native-she
 
 <main id="main">
   <section id="listeningView" class="view-panel" aria-label="监听" hidden>
-    <div class="listening-heading"><h2>监听</h2><p>捕捉说话，自动分段。也可以随时录一段。</p></div>
+    <div class="listening-heading"><h2>监听</h2></div>
   <section id="recorderBar" data-state="idle" aria-label="麦克风录音">
     <div class="recorder-row">
       <span class="recorder-title">麦克风</span>
@@ -413,8 +410,7 @@ body.native-shell #browserActions,body.native-shell #btnSettings,body.native-she
           <label><input id="recorderSpeechDetection" type="checkbox" checked disabled>人声检测</label>
           <label for="recorderSensitivity">触发阈值<select id="recorderSensitivity" disabled><option value="1.5">1.5 倍 · 更灵敏</option><option value="2">2 倍</option><option value="3" selected>3 倍</option><option value="4">4 倍</option><option value="6">6 倍</option><option value="8">8 倍 · 更严格</option></select></label>
           <label><input id="recorderAutoTranscribe" type="checkbox" disabled>保存后自动本地转写</label>
-          <p>监听时自动捕捉说话，安静后结束本段并继续监听；不删除短录音。触发阈值相对环境底噪，数值越小越灵敏。每段最长 10 分钟。</p>
-          <p>本版仅录麦克风，系统声音尚未接入。</p>
+          <p>安静超时自动封口并继续监听，每段最长 10 分钟；短片段不丢弃。</p>
           <div class="recorder-meta">
             <span id="recorderAvailability">浏览器中请使用桌面 App 开始监听</span>
             <span id="recorderDevice" title="使用系统默认输入设备">麦克风：—</span>
@@ -446,7 +442,6 @@ body.native-shell #browserActions,body.native-shell #btnSettings,body.native-she
     <div id="timelineLiveNotice" hidden><span>选区包含尚未保存的录音。</span> <button id="timelineSeal">保存当前段后生成</button></div>
     <audio id="timelineAudio" controls preload="none" hidden></audio>
   </section>
-    <p class="listening-footnote">停止监听后，仍可在时间轴框选、试听或生成片段。</p>
   </section>
   <section id="libraryView" class="view-panel" aria-label="录音库">
   <div id="toolbar">
@@ -461,8 +456,9 @@ body.native-shell #browserActions,body.native-shell #btnSettings,body.native-she
     </div>
     <div class="toolbar-row">
       <div class="toolbar-search">
+        <select id="searchScope" aria-label="搜索范围"><option value="current">当前录音</option><option value="all">全部录音</option></select>
         <input id="search" aria-label="搜索当前录音" placeholder="搜索当前录音">
-        <button id="btnGlobalSearch">搜索全部录音</button>
+        <button id="btnGlobalSearch" hidden>搜索全部录音</button>
       </div>
       <div id="recordingActions">
         <button id="btnSettings">设置</button>
@@ -764,7 +760,7 @@ $('#viewListening').onclick = () => window.fennecNavigate('listening');
 $('#viewLibrary').onclick = () => window.fennecNavigate('library');
 $('#workspaceRecorderStatus').onclick = () => window.fennecNavigate('listening');
 $('#recorderOptionsClose').onclick = () => { $('#recorderSettings').open = false; };
-for (const [id, action] of [['browserRecordingOptions','fennecShowRecordingOptions'],['browserSearch','fennecShowSearch'],['browserSettings','fennecShowSettings']]) {
+for (const [id, action] of [['browserRecordingOptions','fennecShowRecordingOptions'],['browserSettings','fennecShowSettings']]) {
   $('#'+id).onclick = () => { $('#browserActions').open = false; window[action](); };
 }
 document.addEventListener('click', e => {
@@ -937,8 +933,6 @@ function renderTimelineSelection(){
   let note=timeline.error||timeline.loadError||timeline.message;
   if(!note&&timeline.truncated)note='当前范围仅展示最近 200 条录音，请缩短时间范围查看。';
   if(!note&&s&&(s.start<timeline.windowStart||s.end>timeline.windowEnd))note='选区起止时间已保留；部分范围在当前视图外。';
-  if(!note&&valid)note='试听和片段保留选区内的真实空隙；首尾需落在已保存的录音上。';
-  if(!note)note='拖动框选，也可输入起止时间。橙色实时轨迹尚未保存，不能直接试听。';
   $('#timelineNotice').textContent=note;
 }
 function setTimelineSelection(selection){
@@ -2504,9 +2498,21 @@ async function runGlobalSearch(more) {
 }
 
 /* ---------- 搜索跳转 ---------- */
+$('#searchScope').addEventListener('change', () => {
+  const label = $('#searchScope').value === 'all' ? '搜索全部录音' : '搜索当前录音';
+  $('#search').placeholder = label;
+  $('#search').setAttribute('aria-label', label);
+});
 $('#search').addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
   const q = $('#search').value.trim();
+  if ($('#searchScope').value === 'all') {
+    $('#globalSearchModal').classList.add('show');
+    $('#globalQuery').value = q;
+    $('#globalQuery').focus();
+    runGlobalSearch(false);
+    return;
+  }
   renderTranscript(q);
   if (!q || !state.matches.length) return;
   state.matchIdx = 0;
