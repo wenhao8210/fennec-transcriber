@@ -34,6 +34,17 @@ def _locked(fn):
     return wrapped
 
 
+_word_lock = threading.RLock()
+
+
+def _locked(fn):
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        with _word_lock:
+            return fn(*args, **kwargs)
+    return wrapped
+
+
 def _load() -> dict:
     if HOTWORDS_PATH.exists():
         try:

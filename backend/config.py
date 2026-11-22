@@ -13,11 +13,19 @@ FENNEC_DATA_DIR = Path(os.environ.get(
 SESSIONS_DIR = FENNEC_DATA_DIR / "Sessions"
 RECORDINGS_DIR = FENNEC_DATA_DIR / "recordings"
 
+# 本应用原生录音；与第三方 Fennec 的扫描目录分开，只通过完成事件导入。
+SELF_RECORDINGS_DIR = Path(os.environ.get(
+    "FENNEC_RECORDINGS_DIR",
+    str(Path.home() / "Library/Application Support/local.fennec-transcriber/Recordings"),
+)).expanduser()
+
 # 声纹参考：优先复用 Fennec 的声纹样本，没有则提示用户录制
 VOICE_PROFILE_SAMPLE = FENNEC_DATA_DIR / "voice_profile_sample.wav"
 
 # 本项目自己的数据目录（转写结果、缓存、用户参考声纹）
-DATA_DIR = Path(os.environ.get("FENNEC_STORAGE_DIR", str(Path(__file__).resolve().parent.parent / "data"))).expanduser()
+DATA_DIR = Path(os.environ.get(
+    "FENNEC_APP_DATA_DIR", os.environ.get("FENNEC_STORAGE_DIR", str(Path(__file__).resolve().parent.parent / "data")),
+)).expanduser()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "transcripts.db"
 WAV_CACHE = DATA_DIR / "wav_cache"

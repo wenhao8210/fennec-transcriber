@@ -2,6 +2,7 @@
 import json
 import sqlite3
 import threading
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -83,6 +84,14 @@ def init_db():
         # 归档副本路径（Fennec 15 天保留期清理源文件后，仍能从归档区播放/转写）
         if "archived_path" not in cols:
             conn.execute("ALTER TABLE sessions ADD COLUMN archived_path TEXT")
+        # 原生录音元数据：旧记录保持 NULL，既有内容、标签和时间均不改写。
+        for column in ("capture_id", "started_at", "ended_at", "interruption_reason"):
+            if column not in cols:
+                conn.execute(f"ALTER TABLE sessions ADD COLUMN {column} TEXT")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_capture "
+            "ON sessions(capture_id) WHERE capture_id IS NOT NULL"
+        )
         # 迁移：重命名后 file_path 会变，sid 用 md5(file_path) 计算会不一致，
         # 因此加唯一索引，扫描时按 file_path 去重，避免重命名后产生重复记录。
         try:
@@ -105,6 +114,62 @@ def upsert_session(session_id: str, name: str, file_path: str, source: str):
             (session_id, name, file_path, source),
         )
         return session_id
+
+
+def import_recording(*, name: str, file_path: str, capture_id: str,
+                     started_at: str, ended_at: str, created_at: str,
+                     interruption_reason: str | None, duration: float,
+                     source: str = "self_recorder") -> tuple[str, bool]:
+    """原生录音原子登记；跨线程/进程并发重试只创建一条记录。"""
+    if source not in {"self_recorder", "self_clip"}:
+        raise ValueError("unsupported recording source")
+    with _lock, _conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        rows = conn.execute(
+            "SELECT id, capture_id, file_path, source FROM sessions "
+            "WHERE capture_id = ? OR file_path = ?", (capture_id, file_path),
+        ).fetchall()
+        if rows:
+            if len(rows) != 1 or any(
+                row["capture_id"] != capture_id or row["file_path"] != file_path
+                or row["source"] != source for row in rows
+            ):
+                raise ValueError("录音标识或路径已用于另一条录音")
+            return rows[0]["id"], False
+        sid = uuid.uuid4().hex[:12]
+        conn.execute(
+            """INSERT INTO sessions
+               (id, name, file_path, source, duration, capture_id, started_at,
+                ended_at, created_at, interruption_reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (sid, name, file_path, source, duration, capture_id, started_at, ended_at,
+             created_at, interruption_reason),
+        )
+        return sid, True
+
+
+def recording_timeline_candidates(start_iso: str, end_iso: str, date_tokens: list[str], limit: int = 201):
+    """仅读音频元数据并在 SQL 层限定候选数，绝不读取分句或正文。
+
+    老录音仅按文件名中的录音日期找候选，不能用转写入库时间代替事件时间。
+    """
+    legacy = " OR ".join("(name LIKE ? OR file_path LIKE ? OR archived_path LIKE ?)" for _ in date_tokens)
+    params: list = [end_iso, start_iso]
+    for day in date_tokens:
+        params.extend([f"%rec_{day}_%"] * 3)
+    params.append(min(max(limit, 1), 201))
+    with _lock, _conn() as conn:
+        rows = conn.execute(
+            f"""SELECT id,name,file_path,archived_path,source,duration,started_at,ended_at
+                FROM sessions WHERE source IN ('self_recorder','recordings','sessions') AND
+                ((started_at IS NOT NULL AND julianday(started_at) <= julianday(?)
+                  AND (CASE WHEN julianday(ended_at) > julianday(started_at)
+                       THEN julianday(ended_at)
+                       ELSE julianday(started_at) + coalesce(duration,0)/86400.0 END) >= julianday(?))
+                 OR (started_at IS NULL AND ({legacy or '0'})))
+                ORDER BY coalesce(started_at, file_path) DESC LIMIT ?""", params,
+        ).fetchall()
+        return [dict(row) for row in rows]
 
 
 def get_session(session_id: str):

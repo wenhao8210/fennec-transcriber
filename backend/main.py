@@ -5,11 +5,14 @@ import os
 import queue
 import re
 import shutil
+import tempfile
 import threading
 import time
 import uuid
+import zipfile
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 from fastapi import Query, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -18,6 +21,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 import store
 from config import (
@@ -25,6 +29,7 @@ from config import (
     AUDIO_EXTS,
     DATA_DIR,
     RECORDINGS_DIR,
+    SELF_RECORDINGS_DIR,
     SESSIONS_DIR,
     VOICE_PROFILE_SAMPLE,
     VOICE_PROFILES_DIR,
@@ -32,8 +37,11 @@ from config import (
 from asr import run_pipeline
 from speaker import get_recognizer, match_cloud_speakers, resolve_ref_audio
 from aliyun_asr import get_api_key, set_api_key, transcribe_cloud
+from tinet_asr import transcribe_tinet
 from audio_quality import analyze_energy, analyze_speech_ratio, is_low_content, speech_score
 import hotwords
+from recording_import import RecordingImportIn, validate_recording
+import recording_timeline
 
 app = FastAPI(title="Wennec Local Transcriber")
 app.add_middleware(
@@ -60,6 +68,15 @@ _archive_state: dict = {"running": False, "done": 0, "total": 0, "failed": [], "
 _archive_lock = threading.Lock()
 
 
+@app.get("/api/health")
+def health():
+    """仅探测当前进程；不扫描文件、不访问数据库或加载模型。"""
+    # 接单时即写入 queued / 正在提交，任务 finally 清除，包含排队和执行中的任务。
+    return {"status": "ok", "service": "fennec-transcriber",
+            "active_transcriptions": len(_job_progress),
+            "active_recording_jobs": recording_timeline.service.active_jobs()}
+
+
 # ---------- 归档区（对抗 Fennec 15 天录音保留期） ----------
 # 保护范围：仅收藏的录音。收藏时立即归档，并由后台巡检每 10 分钟补漏，
 # 保证 Fennec 清理源文件后音频仍可读。已转写但未收藏的不做保护。
@@ -75,7 +92,7 @@ def _needs_protection(session: dict) -> bool:
 
 def _resolve_audio(session: dict) -> Path | None:
     """返回实际可读的音频路径：优先 Fennec 源文件，被清理后回落归档副本。"""
-    allowed_roots = (SESSIONS_DIR.resolve(), RECORDINGS_DIR.resolve(), ARCHIVE_DIR.resolve())
+    allowed_roots = (SESSIONS_DIR.resolve(), RECORDINGS_DIR.resolve(), ARCHIVE_DIR.resolve(), SELF_RECORDINGS_DIR.resolve())
     for raw in (session.get("file_path"), session.get("archived_path")):
         if not raw:
             continue
@@ -164,7 +181,9 @@ def start_energy_analysis():
         return {"status": "running", **_energy_state}
 
     sessions = store.list_sessions()
-    targets = [s for s in sessions if s.get("speech_ratio") is None]
+    # 页面刷新会自动调用本接口。原生录音默认只入库，不能因此额外加载 VAD。
+    targets = [s for s in sessions
+               if s.get("speech_ratio") is None and s.get("source") not in {"self_recorder", "self_clip"}]
     if not targets:
         return {"status": "done", "done": 0, "total": 0, "low": []}
 
@@ -205,7 +224,7 @@ def _scan_dir(directory: Path, source: str):
         if (f.is_file() and not f.is_symlink() and f.suffix.lower() in AUDIO_EXTS
                 and not store.is_deleted(str(f))):
             sid = uuid.uuid4().hex[:12]  # sid 用 uuid 与路径解耦；upsert 按 file_path 去重，已有文件复用原 id
-            store.upsert_session(sid, f.name, str(f), source)
+            sid = store.upsert_session(sid, f.name, str(f), source)
             # 补时长（已填过的不重复 ffprobe）
             s = store.get_session(sid)
             if s and not s["duration"]:
@@ -312,11 +331,13 @@ def delete_session(sid: str, purge: bool = True):
     }
 
 
-# 单 worker 转写队列：多任务串行执行。whisper/声纹模型经 get_transcriber()/get_recognizer()
+# 本地与现有 API 接口串行执行。whisper/声纹模型经 get_transcriber()/get_recognizer()
 # 全局单例复用（whisper small int8 约 500MB/份），串行 + 单例可避免并发时重复加载多份模型导致内存暴涨。
 _transcribe_queue: "queue.Queue[tuple[str, str, str]]" = queue.Queue()
 _transcribe_worker_started = False
 _transcribe_worker_lock = threading.Lock()
+_transcribe_admission_lock = threading.RLock()
+TRANSCRIBE_ENGINES = {"local", "aliyun", "tinet"}
 
 
 def _ensure_transcribe_worker() -> None:
@@ -343,32 +364,54 @@ def _launch_transcribe(sid: str, engine: str = "local") -> bool:
     """启动一次转写任务（接口与后台自动任务共用）。
 
     已在转写/排队、音频不存在、同引擎已完成时不重复启动，返回 False。
-    任务进入单 worker 队列串行执行（见 _transcribe_queue），不再每个任务单独起线程。
+    天润任务直接提交，其余任务进入原来的串行队列。
     """
-    s = store.get_session(sid)
-    if not s or s["status"] == "transcribing":
-        return False
-    audio = _resolve_audio(s)
-    if audio is None:
-        return False
-    if s["status"] == "done" and s["segments"] and s.get("engine") == engine:
-        return False
+    if engine not in TRANSCRIBE_ENGINES:
+        raise ValueError("请选择转写方式")
+    with _transcribe_admission_lock:
+        s = store.get_session(sid)
+        if not s or s["status"] == "transcribing":
+            return False
+        audio = _resolve_audio(s)
+        if audio is None:
+            return False
+        if s["status"] == "done" and s["segments"] and s.get("engine") == engine:
+            return False
 
-    store.update_status(sid, "transcribing")
-    _job_progress[sid] = {"frac": 0.0, "phase": "queued"}
-    _ensure_transcribe_worker()
-    _transcribe_queue.put((sid, engine, str(audio)))
-    return True
+        store.update_status(sid, "transcribing")
+        if engine == "tinet":
+            _job_progress[sid] = {"frac": 0.0, "phase": "正在提交天润"}
+            try:
+                threading.Thread(
+                    target=_run_transcribe_job,
+                    args=(sid, engine, str(audio)),
+                    daemon=True,
+                    name=f"tinet-transcribe-{sid}",
+                ).start()
+            except RuntimeError:
+                _job_progress.pop(sid, None)
+                store.update_status(sid, "error", "无法启动天润转写任务，请重试")
+                return False
+            return True
+
+        _job_progress[sid] = {"frac": 0.0, "phase": "queued"}
+        _ensure_transcribe_worker()
+        _transcribe_queue.put((sid, engine, str(audio)))
+        return True
 
 
 def _run_transcribe_job(sid: str, engine: str, audio_str: str) -> None:
-    """单个转写任务的实际执行体（由 _transcribe_worker 串行调用）。"""
+    """执行单条转写并保存结果。"""
     audio = Path(audio_str)
     try:
         if engine == "aliyun":
             result = transcribe_cloud(audio, _progress_cb(sid))
-        else:
+        elif engine == "tinet":
+            result = transcribe_tinet(audio, _progress_cb(sid))
+        elif engine == "local":
             result = run_pipeline(audio, _progress_cb(sid))
+        else:
+            raise ValueError("请选择转写方式")
         store.save_segments(sid, result["segments"])
         store.set_engine(sid, engine)
         if result.get("ref_used"):
@@ -400,9 +443,9 @@ def _run_transcribe_job(sid: str, engine: str, audio_str: str) -> None:
 
 @app.post("/api/sessions/{sid}/transcribe")
 def start_transcribe(sid: str, engine: str = "local"):
-    """后台启动转写任务（幂等：已在转写中则返回 409）。engine: local|aliyun"""
-    if engine not in {"local", "aliyun"}:
-        raise HTTPException(400, "engine must be local or aliyun")
+    """后台启动转写任务。engine: local|aliyun|tinet。"""
+    if engine not in TRANSCRIBE_ENGINES:
+        raise HTTPException(400, "请选择本地、API接口或天润")
     s = store.get_session(sid)
     if not s:
         raise HTTPException(404, "session not found")
@@ -414,8 +457,92 @@ def start_transcribe(sid: str, engine: str = "local"):
     # 只有同一引擎的已有结果才能复用；切换引擎时重新转写并覆盖旧结果。
     if s["status"] == "done" and s["segments"] and s.get("engine") == engine:
         return {"status": "done", "cached": True, "engine": engine}
-    _launch_transcribe(sid, engine)
+    if not _launch_transcribe(sid, engine):
+        current = store.get_session(sid)
+        if current and current["status"] == "error":
+            raise HTTPException(503, current.get("error") or "无法启动转写任务")
+        raise HTTPException(409, "录音状态已变化，请刷新后重试")
     return {"status": "transcribing"}
+
+
+class TranscribeBatchIn(BaseModel):
+    ids: list[str]
+    engine: Literal["local", "aliyun", "tinet"]
+
+
+def _selected_ids(ids: list[str]) -> list[str]:
+    if not ids or any(not sid.strip() for sid in ids):
+        raise HTTPException(400, "请选择录音")
+    return list(dict.fromkeys(sid.strip() for sid in ids))
+
+
+@app.post("/api/transcribe-batch")
+def transcribe_batch(body: TranscribeBatchIn):
+    ids = _selected_ids(body.ids)
+    result = {"started": [], "cached": [], "skipped": []}
+    with _transcribe_admission_lock:
+        for sid in ids:
+            session = store.get_session(sid)
+            reason = None
+            if not session:
+                reason = "录音不存在"
+            elif session["status"] == "transcribing":
+                reason = "已在转写或排队"
+            elif _resolve_audio(session) is None:
+                reason = "音频文件已不存在"
+            elif session["status"] == "done" and session["segments"] and session.get("engine") == body.engine:
+                result["cached"].append(sid)
+                continue
+            elif _launch_transcribe(sid, body.engine):
+                result["started"].append(sid)
+                continue
+            else:
+                current = store.get_session(sid)
+                reason = (current or {}).get("error") or "任务状态已变化"
+            result["skipped"].append({"id": sid, "reason": reason})
+    return result
+
+
+@app.get("/api/export-audio")
+def export_audio(ids: str):
+    selected = _selected_ids(ids.split(","))
+    sources = []
+    for sid in selected:
+        session = store.get_session(sid)
+        if not session:
+            raise HTTPException(404, f"录音不存在：{sid}")
+        audio = _resolve_audio(session)
+        if audio is None or not audio.is_file():
+            raise HTTPException(410, f"音频文件已不存在：{session['name']}")
+        sources.append((session, audio))
+
+    # 仅清理本次创建的 ZIP；不修改录音或现有缓存。
+    export_dir = DATA_DIR / "audio_exports"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix="fennec-", suffix=".zip", dir=export_dir)
+    os.close(fd)
+    target = Path(temporary)
+    try:
+        names = set()
+        with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_STORED) as archive:
+            for session, source in sources:
+                original = _safe_name(session["name"]).strip() or source.name
+                if Path(original).suffix.lower() not in AUDIO_EXTS | {".wav", ".opus", ".pcm"}:
+                    original += source.suffix
+                filename, suffix = original, 2
+                while filename.casefold() in names:
+                    filename = f"{Path(original).stem} ({suffix}){Path(original).suffix}"
+                    suffix += 1
+                names.add(filename.casefold())
+                archive.write(source, arcname=filename)
+        return FileResponse(
+            target, media_type="application/zip",
+            filename=f"录音导出_{datetime.now():%Y%m%d_%H%M%S}.zip",
+            background=BackgroundTask(target.unlink, missing_ok=True),
+        )
+    except Exception as exc:
+        target.unlink(missing_ok=True)
+        raise HTTPException(409, "录音导出失败，请检查所选音频后重试") from exc
 
 
 @app.get("/api/sessions/{sid}/progress")
@@ -459,6 +586,8 @@ def export_txt(sid: str):
             who = labels[sp]
         elif sp in speaker_map:
             who = speaker_map[sp]
+        elif sp and sp.startswith("tinet_channel_"):
+            who = f"声道 {sp.removeprefix('tinet_channel_')}"
         elif sp and sp.startswith("speaker_"):
             who = f"说话人{int(sp.split('_')[1]) + 1}"
         else:
@@ -498,6 +627,8 @@ def _speaker_name(sp, labels) -> str:
         return "我"
     if sp == "other":
         return "对方"
+    if sp and str(sp).startswith("tinet_channel_"):
+        return f"声道 {str(sp).removeprefix('tinet_channel_')}"
     if sp and str(sp).startswith("speaker_"):
         try:
             return f"说话人{int(str(sp).split('_')[1]) + 1}"
@@ -695,6 +826,40 @@ async def import_file(req: Request):
     return {"id": sid, "name": name}
 
 
+@app.post("/api/recordings/import")
+def import_self_recording(body: RecordingImportIn):
+    """登记原生壳已完成的 m4a；默认只导入，自动转写固定使用本地引擎。"""
+    metadata = validate_recording(body)
+    try:
+        sid, imported = store.import_recording(**metadata)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    started = False
+    if imported and body.auto_transcribe:
+        started = _launch_transcribe(sid, "local")
+    return {**store.get_session(sid), "imported": imported, "auto_transcribe_started": started}
+
+
+@app.get("/api/recordings/timeline")
+def recording_timeline_data(hours: int = 3):
+    return recording_timeline.service.timeline(hours, _resolve_audio)
+
+
+@app.post("/api/recordings/clip", status_code=202)
+def create_recording_clip(body: recording_timeline.ClipIn):
+    return recording_timeline.service.submit(body, _resolve_audio)
+
+
+@app.get("/api/recordings/clip/{job_id}")
+def recording_clip_status(job_id: str):
+    return recording_timeline.service.job(job_id)
+
+
+@app.get("/api/recordings/clip/{job_id}/audio")
+def recording_clip_audio(job_id: str):
+    return FileResponse(recording_timeline.service.audio(job_id), media_type="audio/mp4")
+
+
 # ---------- 标记自动转写：标记时间点附近的录音，回库后自动转写 ----------
 MARKER_WINDOW = 600            # 秒；标记时间点前后多久内的录音算"这一段"
 MARKER_AUTO_ENGINE = "local"   # local | aliyun（自动转写用哪个引擎）
@@ -727,6 +892,8 @@ def _markers_auto_transcribe() -> dict:
                 # 该标记只挑"最贴近"的一段录音，避免把相邻两通电话都转掉
                 best = None
                 for s in sessions:
+                    if s.get("source") in {"self_recorder", "self_clip"}:
+                        continue  # 原生录音只按录音时的显式开关启动，不能被旧标记绕过。
                     if s.get("status") in ("done", "transcribing", "error"):
                         continue  # 已完成 / 进行中 / 失败的不再自动触发
                     cand = _file_candidate_times(s.get("file_path") or "")

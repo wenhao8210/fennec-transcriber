@@ -11,13 +11,15 @@
 	<key>CFBundleExecutable</key>
 	<string>Wennec</string>
 	<key>CFBundleIconFile</key>
-	<string>Fennec</string>
+	<string>Wennec</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
+	<string>1.2.1</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>4</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>点击开始监听或录音后采集麦克风声音，在本机检测人声、自动分段并保存，用于回听和转写。</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>12.0</string>
 	<key>NSHighResolutionCapable</key>

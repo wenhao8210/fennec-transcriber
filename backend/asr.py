@@ -2,7 +2,10 @@
 
 支持进度回调（用于前端展示转写进度）。
 """
+import hashlib
+import os
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -15,14 +18,24 @@ from speaker import SpeakerRecognizer, get_recognizer, resolve_ref_audio
 
 
 def to_wav_16k(src: Path) -> Path:
-    """把任意音频转成 16k 单声道 wav，缓存在本地。"""
-    out = WAV_CACHE / (src.stem + "_16k.wav")
+    """按规范路径与文件版本缓存，避免同名或覆盖的录音串用旧 WAV。"""
+    src = src.resolve(strict=True)
+    stat = src.stat()
+    identity = f"{src}\0{stat.st_size}\0{stat.st_mtime_ns}\0{stat.st_ctime_ns}"
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+    out = WAV_CACHE / f"{digest}_16k.wav"
     if out.exists():
         return out
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", str(src), "-ar", "16000", "-ac", "1", str(out)],
-        check=True, capture_output=True,
-    )
+    fd, temporary = tempfile.mkstemp(prefix=f"{digest}-", suffix=".wav", dir=WAV_CACHE)
+    os.close(fd)
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(src), "-ar", "16000", "-ac", "1", temporary],
+            check=True, capture_output=True,
+        )
+        Path(temporary).replace(out)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
     return out
 
 
